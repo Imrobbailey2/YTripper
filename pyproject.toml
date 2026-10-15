@@ -1,0 +1,11 @@
+[project]
+name = "ytripper"
+version = "0.0.1"
+description = "One-time, verified, best-quality backup of a YouTube channel (Windows guided script)."
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"

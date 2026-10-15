@@ -1,0 +1,7 @@
+# Direct runtime dependencies (unpinned).
+# setup.ps1 installs these with --pre (yt-dlp nightly channel, per architecture decision 3)
+# and freezes the exact resolved versions into requirements.lock.txt.
+# Once a version passes testing, commit requirements.lock.txt; later setups install from it.
+yt-dlp[default]
+yt-dlp-ejs
+rich

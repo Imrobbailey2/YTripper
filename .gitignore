@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Downloaded binaries (fetched + checksum-verified by setup.ps1)
+tools/*.exe
+tools/_downloads/
+# tools/tools.lock.json IS committed once tests pass (records exact sources + hashes)
+
+# Runtime output
+logs/
+output/
+*.part
+*.ytdl
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
