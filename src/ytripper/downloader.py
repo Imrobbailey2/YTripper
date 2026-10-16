@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from . import description
 from .logging_setup import get_logger
 from .paths import TOOLS_DIR
 from .verifier import Expected
@@ -21,13 +22,16 @@ from .verifier import Expected
 FORMAT_SELECTOR = "bv*+ba/b"
 MERGE_FORMAT = "mkv"
 TEMP_DIR_NAME = ".tmp"
-#: <Output>/<channel>/<YYYY-MM-DD> - <title> [<id>]/<title> [<id>].mkv
+#: <Output>/<channel>/<YYYY-MM-DD> - <title> [<id>]/
 #: Titles are truncated to 80 bytes to keep Windows paths manageable (NF5).
-OUTPUT_TEMPLATE = (
+VIDEO_DIR_TEMPLATE = (
     "%(channel,uploader|Unknown channel)s/"
     "%(upload_date>%Y-%m-%d|unknown-date)s - %(title).80B [%(id)s]/"
-    "%(title).80B [%(id)s].%(ext)s"
 )
+#: .../<title> [<id>].mkv
+OUTPUT_TEMPLATE = VIDEO_DIR_TEMPLATE + "%(title).80B [%(id)s].%(ext)s"
+#: Sidecars use the video ID: <id>.description, <id>.info.json, <id>.<lang>.vtt, <id>.jpg/.webp
+SIDECAR_TEMPLATE = VIDEO_DIR_TEMPLATE + "%(id)s.%(ext)s"
 
 log = get_logger("downloader")
 
@@ -45,6 +49,10 @@ class DownloadResult:
     info: dict[str, Any]
     filepath: Path
     expected: Expected
+    #: Parsed description fields (F19); None lets the pipeline parse them itself.
+    details: dict[str, Any] | None = None
+    #: Where embedded chapters came from: youtube | description | none.
+    chapters_source: str = "none"
 
 
 class _YtdlpLogger:
@@ -98,7 +106,24 @@ def build_options(
         "format": FORMAT_SELECTOR,
         "merge_output_format": MERGE_FORMAT,
         "paths": {"home": str(output_dir), "temp": str(output_dir / TEMP_DIR_NAME)},
-        "outtmpl": {"default": OUTPUT_TEMPLATE},
+        "outtmpl": {
+            "default": OUTPUT_TEMPLATE,
+            "thumbnail": SIDECAR_TEMPLATE,
+            "description": SIDECAR_TEMPLATE,
+            "infojson": SIDECAR_TEMPLATE,
+            "subtitle": SIDECAR_TEMPLATE,
+        },
+        # Sidecar files (F6, F19a). Only uploaded captions: auto-generated are off (decision 5).
+        "writedescription": True,
+        "writeinfojson": True,
+        "writethumbnail": True,
+        "writesubtitles": True,
+        "writeautomaticsub": False,
+        "subtitleslangs": ["all", "-live_chat"],
+        # Embed chapters + metadata (artist = author) by stream copy; never attach the info JSON.
+        "postprocessors": [
+            {"key": "FFmpegMetadata", "add_chapters": True, "add_metadata": True, "add_infojson": False},
+        ],
         "windowsfilenames": True,
         "noplaylist": True,
         "continuedl": True,
@@ -142,7 +167,35 @@ def expected_from_info(info: dict[str, Any]) -> Expected:
         vcodec=vcodec,
         acodec=acodec,
         duration_s=float(duration) if duration else None,
+        chapters=len(info.get("chapters") or []),
+        artist=info.get("artist") or None,
     )
+
+
+def _make_details_pp(holder: dict[str, Any]) -> Any:
+    """yt-dlp 'pre_process' post-processor that parses the description (F19)
+    and prepares the info dict so FFmpegMetadata embeds chapters + author."""
+    from yt_dlp.postprocessor.common import PostProcessor
+
+    class DescriptionDetailsPP(PostProcessor):  # type: ignore[misc]
+        def run(self, info: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+            details = description.parse_description(
+                info.get("description") or "",
+                title=info.get("title") or "",
+                channel=info.get("channel") or info.get("uploader") or "",
+            )
+            youtube_count = len(info.get("chapters") or [])
+            source = description.apply_to_info(info, details)
+            if source == "youtube" and details["chapters"] and len(details["chapters"]) != youtube_count:
+                log.warning("%s: YouTube has %d chapters but the description lists %d; embedding YouTube's",
+                            info.get("id"), youtube_count, len(details["chapters"]))
+            elif source == "description":
+                log.info("%s: no YouTube chapters; embedding %d chapters from the description",
+                         info.get("id"), len(info["chapters"]))
+            holder["details"], holder["chapters_source"] = details, source
+            return [], info
+
+    return DescriptionDetailsPP()
 
 
 def output_path_from_info(info: dict[str, Any]) -> Path:
@@ -168,8 +221,10 @@ def download(url: str, output_dir: Path, tools_dir: Path = TOOLS_DIR) -> Downloa
     output_dir = output_dir.resolve()
     opts = build_options(output_dir, tools_dir)
     log.debug("yt-dlp %s options: %s", yt_dlp.version.__version__, {k: v for k, v in opts.items() if k != "logger"})
+    holder: dict[str, Any] = {}
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.add_post_processor(_make_details_pp(holder), when="pre_process")
             info = ydl.extract_info(url, download=True)
             info = ydl.sanitize_info(info)
     except DownloadError as exc:
@@ -178,4 +233,10 @@ def download(url: str, output_dir: Path, tools_dir: Path = TOOLS_DIR) -> Downloa
         raise DownloadFailed(f"file system error: {exc}", code="os_error") from exc
     if not info:
         raise DownloadFailed("yt-dlp returned no information", code="no_info")
-    return DownloadResult(info=info, filepath=output_path_from_info(info), expected=expected_from_info(info))
+    return DownloadResult(
+        info=info,
+        filepath=output_path_from_info(info),
+        expected=expected_from_info(info),
+        details=holder.get("details"),
+        chapters_source=holder.get("chapters_source", "none"),
+    )

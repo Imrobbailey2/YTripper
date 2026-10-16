@@ -1,9 +1,10 @@
-"""Post-download verification with ffprobe (F7, NF1, F5).
+"""Post-download verification with ffprobe (F7, NF1, F5, F19b).
 
 A file passes only if it has a video and an audio stream, its duration is
 within tolerance of YouTube's, its resolution/frame rate match the best
-available format, and its codecs are the ones that were downloaded (i.e.
-nothing was re-encoded).
+available format, its codecs are the ones that were downloaded (i.e.
+nothing was re-encoded), and - when expected - the chapters and author
+(artist) tag were embedded.
 """
 
 from __future__ import annotations
@@ -41,6 +42,10 @@ class Expected:
     vcodec: str | None
     acodec: str | None
     duration_s: float | None
+    #: Number of chapters that must be embedded (None = don't check).
+    chapters: int | None = None
+    #: Artist/author tag that must be embedded (None = don't check).
+    artist: str | None = None
 
 
 @dataclass
@@ -75,7 +80,7 @@ def parse_rate(rate: str | None) -> float | None:
 def run_ffprobe(path: Path, ffprobe: str = "ffprobe") -> dict[str, Any]:
     """Return ffprobe's JSON description of *path* (streams + format)."""
     result = subprocess.run(  # noqa: S603 - fixed argument list, no shell
-        [ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(path)],
+        [ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", "-show_chapters", str(path)],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -103,7 +108,12 @@ def evaluate(probe: dict[str, Any], expected: Expected, size_bytes: int | None =
     except (TypeError, ValueError):
         duration = None
 
+    tags = {str(k).lower(): v for k, v in (fmt.get("tags") or {}).items()}
+    chapters = probe.get("chapters") or []
+
     saved = {
+        "chapters": len(chapters),
+        "artist": tags.get("artist"),
         "height": video.get("height") if video else None,
         "width": video.get("width") if video else None,
         "fps": parse_rate(video.get("avg_frame_rate") or video.get("r_frame_rate")) if video else None,
@@ -133,6 +143,10 @@ def evaluate(probe: dict[str, Any], expected: Expected, size_bytes: int | None =
         reasons.append(f"video codec {saved['vcodec']} != downloaded {exp_v} (re-encoded?)")
     if audio is not None and exp_a and normalize_codec(saved["acodec"]) != exp_a:
         reasons.append(f"audio codec {saved['acodec']} != downloaded {exp_a} (re-encoded?)")
+    if expected.chapters is not None and saved["chapters"] != expected.chapters:
+        reasons.append(f"{saved['chapters']} chapters embedded, expected {expected.chapters}")
+    if expected.artist and (saved["artist"] or "").strip() != expected.artist.strip():
+        reasons.append(f"artist tag {saved['artist']!r} != expected {expected.artist!r}")
 
     return VerifyResult(ok=not reasons, reasons=reasons, saved=saved)
 
