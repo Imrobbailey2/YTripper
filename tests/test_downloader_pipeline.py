@@ -72,7 +72,36 @@ def test_best_available_prefers_highest_fps_at_top_height() -> None:
 
 def test_expected_from_info() -> None:
     exp = expected_from_info(INFO)
-    assert exp == Expected(height=2160, fps=30.0, vcodec="vp09.00.51.08", acodec="opus", duration_s=600.0)
+    assert exp == Expected(height=2160, fps=30.0, vcodec="vp09.00.51.08", acodec="opus", duration_s=600.0,
+                           chapters=0, artist=None)
+
+
+def test_expected_from_info_includes_chapters_and_artist() -> None:
+    info = dict(INFO, chapters=[{"start_time": 0}, {"start_time": 5}], artist="Camiel Doorenweerd")
+    exp = expected_from_info(info)
+    assert exp.chapters == 2 and exp.artist == "Camiel Doorenweerd"
+
+
+def test_build_options_sidecars_and_embedding(tmp_path: Path) -> None:
+    opts = build_options(tmp_path, tools_dir=tmp_path)
+    assert opts["writedescription"] and opts["writeinfojson"] and opts["writethumbnail"] and opts["writesubtitles"]
+    assert opts["writeautomaticsub"] is False  # decision 5
+    for kind in ("thumbnail", "description", "infojson", "subtitle"):
+        assert opts["outtmpl"][kind] == downloader.VIDEO_DIR_TEMPLATE + "%(id)s.%(ext)s"
+    assert opts["outtmpl"]["default"].startswith(downloader.VIDEO_DIR_TEMPLATE)
+    pp = opts["postprocessors"][0]
+    assert pp == {"key": "FFmpegMetadata", "add_chapters": True, "add_metadata": True, "add_infojson": False}
+
+
+def test_details_postprocessor_with_real_ytdlp() -> None:
+    pytest.importorskip("yt_dlp")
+    holder: dict = {}
+    pp = downloader._make_details_pp(holder)
+    info = {"id": "x", "title": "Talk – Jane Doe", "channel": "Chan", "duration": 100,
+            "description": "Jane Doe presents.\n0:00 Intro\n0:30 Body"}
+    files, out = pp.run(info)
+    assert files == [] and out["artist"] == "Jane Doe"
+    assert holder["chapters_source"] == "description" and len(out["chapters"]) == 2
 
 
 def test_output_path_from_info() -> None:
@@ -156,6 +185,43 @@ def test_pipeline_rejects_invalid_url(tmp_path: Path) -> None:
     assert backup_video("https://example.com/x", tmp_path, tmp_path, download_fn=fake, verify_fn=ok_verifier) is Outcome.INVALID
     assert fake.calls == 0
     assert not (tmp_path / "manifest.json").exists()
+
+
+def test_pipeline_writes_details_file_and_report_columns(tmp_path: Path) -> None:
+    import csv
+
+    info = dict(INFO, description="Author: Camiel Doorenweerd\n0:00 Intro\n1:00 Body\n#flies https://x.org")
+
+    class DetailsDownloader(FakeDownloader):
+        def __call__(self, url, output_dir, tools_dir):  # type: ignore[no-untyped-def]
+            result = super().__call__(url, output_dir, tools_dir)
+            return DownloadResult(info=info, filepath=result.filepath, expected=result.expected,
+                                  chapters_source="description")
+
+    assert backup_video(URL, tmp_path, tmp_path, download_fn=DetailsDownloader(), verify_fn=ok_verifier) is Outcome.VERIFIED
+    entry = Manifest.load(tmp_path).get(VID)
+    details_file = tmp_path / entry["details_path"]
+    assert details_file.name == f"{VID}.details.json"
+    record = json.loads(details_file.read_text(encoding="utf-8"))
+    assert record["author"] == "Camiel Doorenweerd" and record["author_source"] == "description_label"
+    assert len(record["chapters"]) == 2 and record["hashtags"] == ["#flies"]
+    assert record["embedded_chapters_source"] == "description"
+    assert entry["details"]["chapter_count"] == 2 and entry["details"]["chapters_source"] == "description"
+
+    rows = list(csv.DictReader((tmp_path / "report.csv").read_text(encoding="utf-8-sig").splitlines()))
+    assert rows[0]["author"] == "Camiel Doorenweerd"
+    assert (rows[0]["chapter_count"], rows[0]["hashtag_count"], rows[0]["link_count"]) == ("2", "1", "1")
+
+
+def test_pipeline_fails_cleanly_if_details_cannot_be_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ytripper import pipeline
+
+    def boom(*_a, **_k):  # type: ignore[no-untyped-def]
+        raise OSError("disk full")
+
+    monkeypatch.setattr(pipeline, "_write_json", boom)
+    assert backup_video(URL, tmp_path, tmp_path, download_fn=FakeDownloader(), verify_fn=ok_verifier) is Outcome.FAILED
+    assert Manifest.load(tmp_path).get(VID)["last_error"]["stage"] == "details"
 
 
 def test_manifest_is_valid_json_after_run(tmp_path: Path) -> None:
