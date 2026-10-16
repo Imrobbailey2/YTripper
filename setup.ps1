@@ -22,7 +22,12 @@
     Do not download ffmpeg/ffprobe/Deno (use ones already on PATH).
 
 .EXAMPLE
+    pwsh -ExecutionPolicy Bypass -File .\setup.ps1
+    (PowerShell 7, recommended)
+
+.EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\setup.ps1
+    (Windows PowerShell 5.1, also supported)
 #>
 [CmdletBinding()]
 param(
@@ -68,23 +73,41 @@ function Invoke-Checked {
 }
 
 function Find-Python {
-    # Prefer the py launcher with 3.12, then any python on PATH that is >= 3.10.
+    <# Prefer the py launcher with 3.12, then any python on PATH that is >= 3.10.
+       Works on Windows PowerShell 5.1 and PowerShell 7+:
+         - the probe contains no double quotes (5.1 strips embedded quotes from native args)
+         - native stderr never throws (local ErrorActionPreference = Continue); only exit codes count
+         - the Microsoft Store alias in ...\WindowsApps is skipped (it opens the Store, not Python)
+       Returns @{ Exe; Args; Version } or $null; reasons for each rejection go to $script:PythonProbeLog. #>
+    $ErrorActionPreference = 'Continue'
+    $script:PythonProbeLog = @()
     $candidates = @(
         @{ Exe = 'py';      Args = @('-3.12') },
         @{ Exe = 'py';      Args = @('-3') },
         @{ Exe = 'python';  Args = @() },
         @{ Exe = 'python3'; Args = @() }
     )
+    $probe = 'import sys; print(sys.version_info[0], sys.version_info[1])'
     foreach ($c in $candidates) {
-        if (-not (Get-Command $c.Exe -ErrorAction SilentlyContinue)) { continue }
+        $label = (@($c.Exe) + $c.Args) -join ' '
+        $cmd = Get-Command $c.Exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $cmd) { $script:PythonProbeLog += "$label : not on PATH"; continue }
+        if ($cmd.Source -like '*\WindowsApps\*') { $script:PythonProbeLog += "$label : skipped Microsoft Store alias ($($cmd.Source))"; continue }
         try {
-            $ver = & $c.Exe @($c.Args + @('-c', 'import sys; print("%d.%d" % sys.version_info[:2])')) 2>$null
-        } catch { continue }
-        if ($LASTEXITCODE -ne 0 -or -not $ver) { continue }
-        $parts = $ver.Trim().Split('.')
-        if ([int]$parts[0] -eq 3 -and [int]$parts[1] -ge 10) {
-            return @{ Exe = $c.Exe; Args = $c.Args; Version = $ver.Trim() }
+            $out = & $cmd.Source @($c.Args + @('-c', $probe)) 2>$null
+            $code = $LASTEXITCODE
+        } catch {
+            $script:PythonProbeLog += "$label : failed to start ($($_.Exception.Message))"; continue
         }
+        $text = (@($out) -join ' ').Trim()
+        if ($code -ne 0 -or $text -notmatch '^(\d+)\s+(\d+)$') {
+            $script:PythonProbeLog += "$label : probe failed (exit $code, output '$text')"; continue
+        }
+        $major = [int]$Matches[1]; $minor = [int]$Matches[2]
+        if ($major -eq 3 -and $minor -ge 10) {
+            return @{ Exe = $cmd.Source; Args = $c.Args; Version = "$major.$minor" }
+        }
+        $script:PythonProbeLog += "$label : version $major.$minor is too old (need 3.10+)"
     }
     return $null
 }
@@ -141,7 +164,11 @@ function Install-Tool {
 # --- 1. Python + venv -------------------------------------------------------
 Write-Step 'Locating Python 3.10+ (3.12 preferred)'
 $py = Find-Python
-if (-not $py) { Fail 'Python 3.10 or newer not found. Install Python 3.12 from https://www.python.org/downloads/windows/ (tick "Add python.exe to PATH") and re-run.' }
+if (-not $py) {
+    Write-Host '    candidates tried:'
+    foreach ($line in $script:PythonProbeLog) { Write-Host "      $line" }
+    Fail 'Python 3.10 or newer not found. Install Python 3.12 from https://www.python.org/downloads/windows/ (tick "Add python.exe to PATH") and re-run.'
+}
 Write-Host "    found Python $($py.Version) via '$($py.Exe) $($py.Args -join ' ')'"
 if ($py.Version -ne '3.12') { Write-Warning "Python 3.12 is the tested version; $($py.Version) should work but is untested." }
 

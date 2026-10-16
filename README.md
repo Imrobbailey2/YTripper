@@ -22,8 +22,10 @@ YTripper makes a one-time, verified backup of a YouTube channel's videos in the 
 ## Setup
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\setup.ps1
+pwsh -ExecutionPolicy Bypass -File .\setup.ps1
 ```
+
+PowerShell 7 (`pwsh`) is recommended. Windows PowerShell 5.1 (`powershell -ExecutionPolicy Bypass -File .\setup.ps1`) is also supported. If no suitable Python is found, setup lists each candidate it tried and why it was rejected.
 
 Setup does the following:
 
