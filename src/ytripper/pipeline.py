@@ -1,4 +1,4 @@
-"""Per-video pipeline: skip-if-done -> download -> verify -> record (Increment 1).
+"""Per-video pipeline: skip-if-done -> download -> details -> verify -> record.
 
 Status flow: queued -> downloading -> downloaded -> verified | failed.
 The manifest is saved after every transition so an interruption at any
@@ -7,12 +7,13 @@ point leaves a consistent, resumable state.
 
 from __future__ import annotations
 
+import json
 import os
 from enum import Enum
 from pathlib import Path
 from typing import Callable
 
-from . import downloader, verifier
+from . import description, downloader, verifier
 from .logging_setup import get_logger
 from .manifest import Manifest, Status
 from .report import write_report
@@ -30,6 +31,13 @@ class Outcome(str, Enum):
     VERIFIED = "verified"
     FAILED = "failed"
     INVALID = "invalid"
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    """Write JSON atomically (temp file then replace)."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _relative(path: Path, root: Path) -> str:
@@ -78,6 +86,23 @@ def backup_video(
 
     info = result.info
     exp = result.expected
+
+    # F19: description details -> <id>.details.json beside the video.
+    details = result.details or description.parse_description(
+        info.get("description") or "",
+        title=info.get("title") or "",
+        channel=info.get("channel") or info.get("uploader") or "",
+    )
+    details_path = result.filepath.parent / f"{video_id}.details.json"
+    try:
+        _write_json(details_path, description.build_record(info, details, result.chapters_source))
+    except OSError as exc:
+        log.error("%s could not write %s: %s", video_id, details_path.name, exc)
+        manifest.fail(video_id, "details", f"could not write details file: {exc}", "os_error")
+        manifest.save()
+        write_report(manifest)
+        return Outcome.FAILED
+
     manifest.set_status(
         video_id,
         Status.DOWNLOADED,
@@ -87,6 +112,8 @@ def backup_video(
         upload_date=info.get("upload_date"),
         best_available={"height": exp.height, "fps": exp.fps, "vcodec": exp.vcodec,
                         "acodec": exp.acodec, "format_id": info.get("format_id")},
+        details=dict(description.summary(details), chapters_source=result.chapters_source),
+        details_path=_relative(details_path, output_dir),
     )
     manifest.save()
 

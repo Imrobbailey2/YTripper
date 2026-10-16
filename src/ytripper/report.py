@@ -1,7 +1,7 @@
-"""CSV report generated from the manifest (F11).
+"""CSV report generated from the manifest (F11, F19).
 
 Written as UTF-8 with a BOM so Excel opens non-ASCII titles correctly.
-Later increments add description and playlist columns.
+Playlist columns are added in Increment 3.
 """
 
 from __future__ import annotations
@@ -15,7 +15,9 @@ from .manifest import Manifest
 REPORT_NAME = "report.csv"
 COLUMNS = (
     "video_id", "title", "channel", "status", "height", "fps", "vcodec", "acodec",
-    "duration_s", "size_bytes", "path", "attempts", "error",
+    "duration_s", "size_bytes", "path",
+    "author", "author_source", "chapter_count", "hashtag_count", "link_count",
+    "attempts", "error",
 )
 
 
@@ -24,6 +26,7 @@ def build_rows(manifest: Manifest) -> list[dict[str, object]]:
     for vid in sorted(manifest.videos):
         entry = manifest.videos[vid]
         saved = entry.get("saved") or {}
+        details = entry.get("details") or {}
         err = entry.get("last_error") or {}
         rows.append({
             "video_id": vid,
@@ -37,6 +40,11 @@ def build_rows(manifest: Manifest) -> list[dict[str, object]]:
             "duration_s": saved.get("duration_s", ""),
             "size_bytes": saved.get("size_bytes", ""),
             "path": saved.get("path", ""),
+            "author": details.get("author", ""),
+            "author_source": details.get("author_source", ""),
+            "chapter_count": details.get("chapter_count", ""),
+            "hashtag_count": details.get("hashtag_count", ""),
+            "link_count": details.get("link_count", ""),
             "attempts": entry.get("attempts", 0),
             "error": f"{err.get('stage')}: {err.get('message')}" if err else "",
         })
