@@ -1,7 +1,8 @@
 """Command-line entry point: ``python -m ytripper``.
 
-Increment 0 provides only ``--versions`` (environment check used by
-setup.ps1). The guided backup flow is added in later increments.
+Increment 1 adds a temporary single-video mode (``--video URL --output DIR``)
+used to validate the download -> verify -> manifest -> report slice. The
+guided prompts replace it in Increment 5.
 """
 
 from __future__ import annotations
@@ -12,11 +13,15 @@ from pathlib import Path
 
 from . import __version__, versions
 from .logging_setup import get_logger, setup_logging
-from .paths import DEFAULT_LOG_DIR, TOOLS_DIR
+from .paths import DEFAULT_LOG_DIR, PROJECT_ROOT, TOOLS_DIR
 
 EXIT_OK = 0
 EXIT_MISSING_DEPENDENCY = 3
 EXIT_NOT_IMPLEMENTED = 4
+EXIT_FAILURES = 5
+EXIT_INVALID_INPUT = 2
+
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--versions",
         action="store_true",
         help="check that all dependencies are present and print their versions",
+    )
+    parser.add_argument("--video", metavar="URL", help="back up a single video (temporary test mode)")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"backup output folder (default: {DEFAULT_OUTPUT_DIR})",
     )
     parser.add_argument(
         "--log-dir",
@@ -59,6 +71,34 @@ def cmd_versions(tools_dir: Path) -> int:
     return EXIT_OK
 
 
+def cmd_video(url: str, output_dir: Path, tools_dir: Path) -> int:
+    """Back up one video and report the outcome."""
+    from .manifest import Manifest, ManifestError
+    from .pipeline import Outcome, backup_video
+
+    log = get_logger()
+    components = versions.collect(tools_dir)
+    missing = [c.name for c in components if not c.ok]
+    if missing:
+        log.error("Missing dependencies: %s. Run setup.ps1 first.", ", ".join(missing))
+        return EXIT_MISSING_DEPENDENCY
+
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        manifest = Manifest.load(output_dir)
+    except (OSError, ManifestError) as exc:
+        log.error("Cannot use output folder %s: %s", output_dir, exc)
+        return EXIT_INVALID_INPUT
+    manifest.record_run({c.name: c.version for c in components})
+
+    ffprobe = versions.resolve_binary("ffprobe", tools_dir)
+    outcome = backup_video(url, output_dir, tools_dir, str(ffprobe), manifest=manifest)
+    log.info("Result: %s  (manifest: %s)", outcome.value, output_dir / "manifest.json")
+    if outcome is Outcome.INVALID:
+        return EXIT_INVALID_INPUT
+    return EXIT_OK if outcome in (Outcome.VERIFIED, Outcome.SKIPPED) else EXIT_FAILURES
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -71,9 +111,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.versions:
         return cmd_versions(args.tools_dir)
+    if args.video:
+        return cmd_video(args.video, args.output, args.tools_dir)
 
-    log.info("The guided backup is not implemented yet (planned for a later increment).")
-    log.info("Use --versions to check the environment.")
+    log.info("The guided backup is not implemented yet (planned for Increment 5).")
+    log.info("Use --versions to check the environment, or --video URL to test a single video.")
     return EXIT_NOT_IMPLEMENTED
 
 
