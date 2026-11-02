@@ -9,12 +9,12 @@ import pytest
 from ytripper.description import (
     apply_to_info,
     build_record,
+    embedded_chapters_source,
     parse_description,
     parse_timestamp,
     split_names,
     split_sentences,
     summary,
-    to_ytdlp_chapters,
 )
 from ytripper.paths import PROJECT_ROOT
 
@@ -130,15 +130,12 @@ def test_parse_timestamp() -> None:
     assert parse_timestamp("1:02:03") == 3723 and parse_timestamp("05:07") == 307
 
 
-def test_to_ytdlp_chapters() -> None:
-    chapters = [{"start": 0, "title": "A"}, {"start": 60, "title": "B"}]
-    assert to_ytdlp_chapters(chapters, 120) == [
-        {"start_time": 0.0, "end_time": 60.0, "title": "A"},
-        {"start_time": 60.0, "end_time": 120.0, "title": "B"},
-    ]
-    assert to_ytdlp_chapters(chapters[:1], 120) == []
-    assert to_ytdlp_chapters([{"start": 60, "title": "B"}, {"start": 0, "title": "A"}], 120) == []
-    assert to_ytdlp_chapters(chapters, 30) == []
+def test_clock_time_schedule_is_parsed_but_only_recorded() -> None:
+    # R4: schedule lines look like chapters; they are kept in details.json but never embedded.
+    d = parse_description("9:30 Registration\n10:00 Keynote", title="t", channel="c")
+    assert [c["start"] for c in d["chapters"]] == [570, 600]
+    info: dict = {"duration": 3600}
+    assert apply_to_info(info, d) == "none" and "chapters" not in info
 
 
 # ------------------------------------------------------------- hashtags / links
@@ -176,11 +173,18 @@ def test_apply_to_info_prefers_youtube_chapters() -> None:
     assert info["artist"] == "c" and info["artists"] == ["c"]
 
 
-def test_apply_to_info_falls_back_to_description() -> None:
-    info = {"duration": 100}
+def test_apply_to_info_never_embeds_description_chapters() -> None:
+    info: dict = {"duration": 100}
     details = parse_description("0:00 A\n0:50 B", title="t", channel="c")
-    assert apply_to_info(info, details) == "description"
-    assert [c["title"] for c in info["chapters"]] == ["A", "B"]
+    assert apply_to_info(info, details) == "none"
+    assert "chapters" not in info
+    assert len(details["chapters"]) == 2  # still recorded for details.json
+
+
+@pytest.mark.parametrize(("info", "expected"), [({"chapters": [{"start_time": 0}]}, "youtube"),
+                                                ({"chapters": []}, "none"), ({}, "none")])
+def test_embedded_chapters_source(info: dict, expected: str) -> None:
+    assert embedded_chapters_source(info) == expected
 
 
 def test_apply_to_info_none() -> None:

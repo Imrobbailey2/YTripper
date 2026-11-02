@@ -51,7 +51,7 @@ class DownloadResult:
     expected: Expected
     #: Parsed description fields (F19); None lets the pipeline parse them itself.
     details: dict[str, Any] | None = None
-    #: Where embedded chapters came from: youtube | description | none.
+    #: Where embedded chapters came from: youtube | none (description chapters are never embedded).
     chapters_source: str = "none"
 
 
@@ -174,7 +174,7 @@ def expected_from_info(info: dict[str, Any]) -> Expected:
 
 def _make_details_pp(holder: dict[str, Any]) -> Any:
     """yt-dlp 'pre_process' post-processor that parses the description (F19)
-    and prepares the info dict so FFmpegMetadata embeds chapters + author."""
+    and sets the author so FFmpegMetadata embeds it with YouTube's chapters."""
     from yt_dlp.postprocessor.common import PostProcessor
 
     class DescriptionDetailsPP(PostProcessor):  # type: ignore[misc]
@@ -189,9 +189,9 @@ def _make_details_pp(holder: dict[str, Any]) -> Any:
             if source == "youtube" and details["chapters"] and len(details["chapters"]) != youtube_count:
                 log.warning("%s: YouTube has %d chapters but the description lists %d; embedding YouTube's",
                             info.get("id"), youtube_count, len(details["chapters"]))
-            elif source == "description":
-                log.info("%s: no YouTube chapters; embedding %d chapters from the description",
-                         info.get("id"), len(info["chapters"]))
+            elif source == "none" and details["chapters"]:
+                log.info("%s: no YouTube chapters; the description's %d chapters are kept in details.json only",
+                         info.get("id"), len(details["chapters"]))
             holder["details"], holder["chapters_source"] = details, source
             return [], info
 

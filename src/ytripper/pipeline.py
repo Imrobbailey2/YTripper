@@ -88,14 +88,20 @@ def backup_video(
     exp = result.expected
 
     # F19: description details -> <id>.details.json beside the video.
-    details = result.details or description.parse_description(
-        info.get("description") or "",
-        title=info.get("title") or "",
-        channel=info.get("channel") or info.get("uploader") or "",
-    )
+    if result.details is not None:
+        details, chapters_source = result.details, result.chapters_source
+    else:
+        # The downloader's pre_process hook did not run: parse here and derive the
+        # embedded-chapter source from the info dict rather than trusting the default.
+        details = description.parse_description(
+            info.get("description") or "",
+            title=info.get("title") or "",
+            channel=info.get("channel") or info.get("uploader") or "",
+        )
+        chapters_source = description.embedded_chapters_source(info)
     details_path = result.filepath.parent / f"{video_id}.details.json"
     try:
-        _write_json(details_path, description.build_record(info, details, result.chapters_source))
+        _write_json(details_path, description.build_record(info, details, chapters_source))
     except OSError as exc:
         log.error("%s could not write %s: %s", video_id, details_path.name, exc)
         manifest.fail(video_id, "details", f"could not write details file: {exc}", "os_error")
@@ -112,7 +118,7 @@ def backup_video(
         upload_date=info.get("upload_date"),
         best_available={"height": exp.height, "fps": exp.fps, "vcodec": exp.vcodec,
                         "acodec": exp.acodec, "format_id": info.get("format_id")},
-        details=dict(description.summary(details), chapters_source=result.chapters_source),
+        details=dict(description.summary(details), chapters_source=chapters_source),
         details_path=_relative(details_path, output_dir),
     )
     manifest.save()

@@ -101,7 +101,9 @@ def test_details_postprocessor_with_real_ytdlp() -> None:
             "description": "Jane Doe presents.\n0:00 Intro\n0:30 Body"}
     files, out = pp.run(info)
     assert files == [] and out["artist"] == "Jane Doe"
-    assert holder["chapters_source"] == "description" and len(out["chapters"]) == 2
+    # decision 4 (revised): description chapters are recorded, never embedded
+    assert holder["chapters_source"] == "none" and "chapters" not in out
+    assert len(holder["details"]["chapters"]) == 2
 
 
 def test_output_path_from_info() -> None:
@@ -195,8 +197,7 @@ def test_pipeline_writes_details_file_and_report_columns(tmp_path: Path) -> None
     class DetailsDownloader(FakeDownloader):
         def __call__(self, url, output_dir, tools_dir):  # type: ignore[no-untyped-def]
             result = super().__call__(url, output_dir, tools_dir)
-            return DownloadResult(info=info, filepath=result.filepath, expected=result.expected,
-                                  chapters_source="description")
+            return DownloadResult(info=info, filepath=result.filepath, expected=result.expected)
 
     assert backup_video(URL, tmp_path, tmp_path, download_fn=DetailsDownloader(), verify_fn=ok_verifier) is Outcome.VERIFIED
     entry = Manifest.load(tmp_path).get(VID)
@@ -205,12 +206,31 @@ def test_pipeline_writes_details_file_and_report_columns(tmp_path: Path) -> None
     record = json.loads(details_file.read_text(encoding="utf-8"))
     assert record["author"] == "Camiel Doorenweerd" and record["author_source"] == "description_label"
     assert len(record["chapters"]) == 2 and record["hashtags"] == ["#flies"]
-    assert record["embedded_chapters_source"] == "description"
-    assert entry["details"]["chapter_count"] == 2 and entry["details"]["chapters_source"] == "description"
+    assert record["embedded_chapters_source"] == "none"  # description chapters are never embedded
+    assert entry["details"]["chapter_count"] == 2 and entry["details"]["chapters_source"] == "none"
 
     rows = list(csv.DictReader((tmp_path / "report.csv").read_text(encoding="utf-8-sig").splitlines()))
     assert rows[0]["author"] == "Camiel Doorenweerd"
     assert (rows[0]["chapter_count"], rows[0]["hashtag_count"], rows[0]["link_count"]) == ("2", "1", "1")
+
+
+def test_pipeline_fallback_parse_derives_youtube_chapter_source(tmp_path: Path) -> None:
+    # R7: when the downloader supplies no details, the source must come from the info dict.
+    info = dict(INFO, chapters=[{"start_time": 0, "end_time": 300, "title": "One"},
+                                {"start_time": 300, "end_time": 600, "title": "Two"}])
+
+    class YoutubeChaptersDownloader(FakeDownloader):
+        def __call__(self, url, output_dir, tools_dir):  # type: ignore[no-untyped-def]
+            result = super().__call__(url, output_dir, tools_dir)
+            return DownloadResult(info=info, filepath=result.filepath, expected=result.expected)
+
+    assert backup_video(URL, tmp_path, tmp_path, download_fn=YoutubeChaptersDownloader(),
+                        verify_fn=ok_verifier) is Outcome.VERIFIED
+    entry = Manifest.load(tmp_path).get(VID)
+    record = json.loads((tmp_path / entry["details_path"]).read_text(encoding="utf-8"))
+    assert record["embedded_chapters_source"] == "youtube"
+    assert [c["title"] for c in record["youtube_chapters"]] == ["One", "Two"]
+    assert entry["details"]["chapters_source"] == "youtube"
 
 
 def test_pipeline_fails_cleanly_if_details_cannot_be_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

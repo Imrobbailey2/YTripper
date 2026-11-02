@@ -4,7 +4,8 @@ Pure functions only - no network, no yt-dlp import - so every rule is unit
 tested against sample descriptions in ``samples/descriptions``.
 
 Extracted fields:
-    chapters  - timestamp lines ("00:00 Intro", "Intro - 1:02:03")
+    chapters  - timestamp lines ("00:00 Intro", "Intro - 1:02:03"); recorded in
+                details.json only - never embedded (decision 4, revised)
     hashtags  - "#tag" words (URLs excluded), de-duplicated case-insensitively
     credits   - "Role: Name" lines and prose such as
                 "Lectures were provided by A, B, and C" /
@@ -336,42 +337,26 @@ def parse_description(text: str, *, title: str = "", channel: str = "") -> dict[
 
 
 # ------------------------------------------------------------ yt-dlp bridging
-def to_ytdlp_chapters(chapters: list[dict[str, Any]], duration: float | None) -> list[dict[str, Any]]:
-    """Convert description chapters to yt-dlp's format, or [] if not a valid set.
+def embedded_chapters_source(info: dict[str, Any]) -> str:
+    """Where the chapters embedded in the MKV come from: ``youtube`` or ``none``.
 
-    Valid means: at least 2 chapters, strictly increasing start times, and
-    (when the duration is known) every start before the end of the video.
+    Only YouTube's own chapters are ever embedded (architecture decision 4,
+    revised 2026-11-02): description timestamps are unreliable (schedules,
+    clock times) and an embedded chapter list is permanent.
     """
-    if len(chapters) < 2:
-        return []
-    starts = [c["start"] for c in chapters]
-    if any(b <= a for a, b in zip(starts, starts[1:])):
-        return []
-    if duration and starts[-1] >= duration:
-        return []
-    result = []
-    for i, chapter in enumerate(chapters):
-        end = chapters[i + 1]["start"] if i + 1 < len(chapters) else (duration or chapter["start"])
-        result.append({"start_time": float(chapter["start"]), "end_time": float(end), "title": chapter["title"]})
-    return result
+    return "youtube" if info.get("chapters") else "none"
 
 
 def apply_to_info(info: dict[str, Any], details: dict[str, Any]) -> str:
     """Prepare yt-dlp's info dict for embedding; return the chapter source.
 
-    Sets the artist tag to the author, and falls back to description chapters
-    only when YouTube supplied none (architecture decision 4).
+    Sets the artist tag to the author (F19b). Never adds chapters: description
+    chapters stay in ``details.json`` only.
     """
     if details.get("author"):
         info["artist"] = details["author"]
         info["artists"] = [details["author"]]
-    if info.get("chapters"):
-        return "youtube"
-    fallback = to_ytdlp_chapters(details.get("chapters") or [], info.get("duration"))
-    if fallback:
-        info["chapters"] = fallback
-        return "description"
-    return "none"
+    return embedded_chapters_source(info)
 
 
 def _iso_date(upload_date: str | None) -> str | None:
