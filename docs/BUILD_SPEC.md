@@ -1,6 +1,6 @@
 # YTripper — Build Specification (reconstructed)
 
-**Status:** v1.0, approved 2026-11-02. Reconstructed from the code at `increment-2-description-details` @ 2792f2b plus user Q&A. The original spec was lost.
+**Status:** v1.1, approved 2026-11-02. v1.1 changes: F8 and NF3 returned to their original meanings (the code cites them), so the preview is now F17 and pacing is NF11; decision 4 revised so description chapters are never embedded. Reconstructed from the code at `increment-2-description-details` @ 2792f2b plus user Q&A. The original spec was lost.
 **Owner:** Rob Bailey
 
 **Legend**
@@ -9,7 +9,7 @@
 - 🆕 **New:** written during the rebuild.
 - ⚠️ **Proposed:** not yet confirmed.
 
-**Requirement IDs:** IDs the code cites (F5, F6, F7, F9, F10, F11, F19, NF1, NF4, NF5, NF7, NF10) were kept. Every other ID was **reassigned** and may not match the original numbering.
+**Requirement IDs:** IDs the code cites (F5, F6, F7, F8, F9, F10, F11, F19, NF1, NF3, NF4, NF5, NF7, NF10) were kept. F8 and NF3 come from a test comment: "NF3 / F8: nothing re-downloaded". Every other ID was **reassigned** and may not match the original numbering.
 
 ---
 
@@ -36,7 +36,7 @@ Make a one-time, **verified**, best-quality backup of a client's YouTube content
 | ID | Requirement | Priority | Acceptance criteria | Src |
 |---|---|---|---|---|
 | F12 | Asks for the **output folder at startup**; pressing Enter uses `output\` in the project folder | Must | The folder is created if missing and checked to be writable. A path that can't be used is rejected with a reason and the question repeats. A folder that already has a `manifest.json` is treated as a resume. | ✅ |
-| F8 | **Preview before download:** each video's title, length and upload date, the total count, how many will be skipped as already verified, how many need attention, and an estimated total size | Must | Nothing downloads until you confirm. Answering "no" exits and records the queued videos as `planned`. | ✅ |
+| F17 | **Preview before download:** each video's title, length and upload date, the total count, how many will be skipped as already verified, how many need attention, and an estimated total size | Must | Nothing downloads until you confirm. Answering "no" exits and records the queued videos as `planned`. | ✅ |
 | F15 | Step-by-step guided prompts started from `run.bat`; they replace the temporary `--video` mode | Must | Someone who doesn't code can complete a backup using only the prompts | 🔎 (Increment 5) |
 
 ### Download and storage
@@ -50,7 +50,7 @@ Make a one-time, **verified**, best-quality backup of a client's YouTube content
 | ID | Requirement | Priority | Acceptance criteria | Src |
 |---|---|---|---|---|
 | F7 | ffprobe check after every download: video and audio present; duration within **±2.0 s** of YouTube's; height equals the best available; frame rate within **±0.5** of the best available; codecs equal what was downloaded | Must | A video only counts as done once it is `verified` | 🔎 |
-| F7a | A video is skipped only if it is `verified` **and** its file still exists | Must | Deleting the MKV makes the next run download it again | 🔎 |
+| F8 | **Re-runs skip finished videos:** a video is skipped only if it is `verified` **and** its file still exists | Must | A second run makes no download calls for it; deleting the MKV makes the next run download it again | 🔎 |
 
 ### Failure handling
 | ID | Requirement | Priority | Acceptance criteria | Src |
@@ -74,22 +74,23 @@ Make a one-time, **verified**, best-quality backup of a client's YouTube content
 |---|---|---|---|---|
 | F19 | Reads from each description: **author, chapters, hashtags, credits, links** → `<id>.details.json` (the playlists field is filled by F13) | Must | All fields are present for the 3 sample descriptions | ✅ |
 | F19-author | Author order, first match wins: labelled line (`Author:`, `Speaker:`, `Presented by:`…) → a person's name at the start or end of the title, confirmed by the description → biography sentence → channel name. `author_source` records which rule matched. | Must | Each sample produces the expected author and source | ✅ |
-| F19-chapters | Timestamp lines become chapters. YouTube's own chapters win. Description chapters are embedded only when YouTube has none **and** the set is valid: **2 or more** chapters, start times in order, every start before the video ends. | Must | `embedded_chapters_source` ∈ {youtube, description, none} | ✅ |
+| F19-chapters | Timestamp lines in the description are recorded as chapters in `details.json` **only**. They are **never embedded**, because schedules and clock times look like chapters and an embedded list is permanent. Only YouTube's own chapters are embedded. | Must | `embedded_chapters_source` ∈ {youtube, none} | ✅ (revised 2026-11-02) |
 | F19-hashtags | `#words` (not inside URLs), duplicates removed ignoring case | Must | | ✅ |
 | F19-credits | `Role: Name` lines and sentences with "provided by", "in association with" or "possible through" | Must | Stored in `details.json` only | ✅ |
 | F19-links | http(s) and `www.` URLs, each labelled with the text around it, duplicates removed | Must | | ✅ |
 | F19a | Report columns: `author`, `author_source`, `chapter_count`, `hashtag_count`, `link_count` | Must | | 🔎 |
-| F19b | Embedded in the MKV without re-encoding: the chapters, and the author as the **artist tag only** (no credits or hashtags) | Must | ffprobe shows the expected chapter count and artist tag | ✅🔎 |
+| F19b | Embedded in the MKV without re-encoding: **YouTube's** chapters, and the author as the **artist tag only** (no credits or hashtags) | Must | ffprobe shows the expected chapter count and artist tag | ✅🔎 |
 
 ## 3. Nonfunctional Requirements
 | ID | Requirement | Priority | Acceptance criteria | Src |
 |---|---|---|---|---|
 | NF1 | Never re-encode | Must | Codec check in F7 | 🔎 |
 | NF2 | Free-space check against the preview's size estimate | Must | A warning appears before you confirm if space is short | ✅ |
-| NF3 | A random pause of **5–15 s** between videos | Must | Visible in the log | ✅ |
-| NF3a | On HTTP 429 or a rate-limit error: wait **10 min**, then retry, up to **3** times | Must | Logged | ✅ |
-| NF3b | On the "confirm you're not a bot" block: save the manifest and report, exit with a clear message, leave the rest `queued` | Must | The next run resumes | ✅ |
-| NF3c | No download speed cap by default | — | | ✅ |
+| NF3 | **Nothing is downloaded twice:** re-running a fully verified backup downloads 0 bytes | Must | The log says "already verified - skipping (0 bytes downloaded)" | 🔎 |
+| NF11 | A random pause of **5–15 s** between videos | Must | Visible in the log | ✅ |
+| NF11a | On HTTP 429 or a rate-limit error: wait **10 min**, then retry, up to **3** times | Must | Logged | ✅ |
+| NF11b | On the "confirm you're not a bot" block: save the manifest and report, exit with a clear message, leave the rest `queued` | Must | The next run resumes | ✅ |
+| NF11c | No download speed cap by default | — | | ✅ |
 | NF4 | Never uses cookies, accounts or credentials | Must | The yt-dlp options contain no cookie or auth settings | 🔎 |
 | NF5 | Folder and file names safe for Windows; titles cut to 80 bytes | Must | | 🔎 |
 | NF6 | Windows 10/11 x64; Python 3.12 tested (3.10+ supported); PowerShell 7 or 5.1 | Must | `setup.ps1` succeeds on both PowerShell versions | 🔎 |
@@ -102,7 +103,7 @@ Make a one-time, **verified**, best-quality backup of a client's YouTube content
 1. yt-dlp is used **as a Python library**, not by calling its command line.
 2. `manifest.json` is the **single record** of each video's status.
 3. yt-dlp **nightly** builds, frozen into `requirements.lock.txt` once a version passes testing.
-4. Chapters: **YouTube's own chapters win**; description chapters are used only when YouTube has none.
+4. Chapters: **only YouTube's own chapters are embedded.** Description chapters are recorded in `details.json` but never embedded. (Revised 2026-11-02; this replaces "fall back to description chapters when YouTube has none".)
 5. Captions: **only those the uploader added**; no auto-generated captions.
 
 ## 5. Increment Plan
@@ -110,9 +111,9 @@ Make a one-time, **verified**, best-quality backup of a client's YouTube content
 |---|---|---|
 | 0 | Skeleton, `setup.ps1`, launcher, logging, dependency check | Merged |
 | 1 | One video end to end: download → check → manifest → report | Merged |
-| 2 | F19, F19a, F19b: description details | On its branch, **under review** |
+| 2 | F19, F19a, F19b: description details | On its branch; review fixes R2, R4–R7 applied; waiting for the Windows run (R1) |
 | 3 | F1–F4a, F13, F14, F14a: all four input types, line-numbered errors, finding videos via playlists, playlist columns | ✅ Planned |
-| 4 | F8, F10–F10c, F11a, NF2, NF3*: preview, the multi-video loop, failure handling, pacing | ✅ Planned |
+| 4 | F17, F10–F10c, F11a, NF2, NF11*: preview, the multi-video loop, failure handling, pacing | ✅ Planned |
 | 5 | F12, F15: guided prompts, output-folder prompt, README for end users | 🔎 |
 
 ## 6. MVP
@@ -123,6 +124,7 @@ Increments 0–5 together: a guided, resumable, verified backup of a channel, pl
 - Upcoming or live streams
 - Auto-generated captions and live chat
 - Re-encoding or format conversion
+- Embedding chapters taken from descriptions
 - Ongoing or scheduled syncing (this is a **one-time** backup)
 - macOS and Linux support
 
