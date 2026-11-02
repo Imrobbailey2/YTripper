@@ -1,6 +1,9 @@
 """CSV report generated from the manifest (F11, F19).
 
 Written as UTF-8 with a BOM so Excel opens non-ASCII titles correctly.
+Text that comes from YouTube (titles, channel, author, errors) is untrusted:
+any cell starting with a formula trigger is prefixed with ``'`` so Excel
+shows it as text instead of evaluating it (CSV/formula injection, CWE-1236).
 Playlist columns are added in Increment 3.
 """
 
@@ -20,6 +23,16 @@ COLUMNS = (
     "attempts", "error",
 )
 
+#: Leading characters that make Excel/LibreOffice treat a cell as a formula.
+_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def safe_cell(value: object) -> object:
+    """Neutralise spreadsheet formula injection in a text cell; other types pass through."""
+    if isinstance(value, str) and value.startswith(_FORMULA_TRIGGERS):
+        return "'" + value
+    return value
+
 
 def build_rows(manifest: Manifest) -> list[dict[str, object]]:
     rows = []
@@ -28,7 +41,7 @@ def build_rows(manifest: Manifest) -> list[dict[str, object]]:
         saved = entry.get("saved") or {}
         details = entry.get("details") or {}
         err = entry.get("last_error") or {}
-        rows.append({
+        row = {
             "video_id": vid,
             "title": entry.get("title", ""),
             "channel": entry.get("channel", ""),
@@ -47,7 +60,8 @@ def build_rows(manifest: Manifest) -> list[dict[str, object]]:
             "link_count": details.get("link_count", ""),
             "attempts": entry.get("attempts", 0),
             "error": f"{err.get('stage')}: {err.get('message')}" if err else "",
-        })
+        }
+        rows.append({key: safe_cell(value) for key, value in row.items()})
     return rows
 
 
