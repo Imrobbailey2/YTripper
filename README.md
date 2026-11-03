@@ -2,7 +2,7 @@
 
 YTripper makes a one-time, verified backup of a YouTube channel's videos in the best quality YouTube stores. It's a guided script for Windows, built on [yt-dlp](https://github.com/yt-dlp/yt-dlp) (used as a Python library), ffmpeg/ffprobe and Deno.
 
-> **Status: Increment 0 (project skeleton).** Only the environment setup and the dependency check work so far. The backup itself comes in later increments.
+> **Status: Increment 2 (description details).** A single video can be backed up end to end with `--video`: download, ffprobe verification, description details, manifest and report. Channel, playlist and link-list input (Increment 3), the preview and multi-video run (Increment 4) and the guided prompts (Increment 5) are still to come. See [`docs/BUILD_SPEC.md`](docs/BUILD_SPEC.md) for the full specification.
 
 ## Scope
 
@@ -32,6 +32,7 @@ Setup does the following:
 1. Creates `.venv` and installs the Python dependencies.
    - If `requirements.lock.txt` exists, it installs those exact versions.
    - Otherwise it installs the latest **nightly** yt-dlp and writes the resolved versions to `requirements.lock.txt`.
+   - yt-dlp is installed with its `curl-cffi` extra so it can impersonate a browser when a site requires it. The allowed curl-cffi versions come from yt-dlp itself.
 2. Downloads `ffmpeg.exe`, `ffprobe.exe` and `deno.exe` into `tools\`. Each archive is checked against the SHA-256 checksum its publisher releases alongside it.
 3. Runs `python -m ytripper --versions` and fails if any dependency is missing.
 
@@ -40,18 +41,66 @@ Setup does the following:
 | `-Refresh` | Ignores the lock file and existing tools: gets the newest nightly yt-dlp and downloads ffmpeg and Deno again |
 | `-SkipTools` | Uses ffmpeg, ffprobe and Deno from `PATH` instead of downloading them |
 
+If you set up before curl-cffi was added (`--versions` shows `MISSING curl-cffi`), run `pwsh -ExecutionPolicy Bypass -File .\setup.ps1 -Refresh` once. A plain setup reinstalls the old lock file, which doesn't include it.
+
 ## Usage (current)
 
-```bat
-run.bat --versions        & rem dependency check
-.venv\Scripts\python.exe -m pytest
+```powershell
+.\run.bat --versions                                 # dependency check
+.\run.bat --video https://youtu.be/VIDEO_ID          # back up one video into .\output
+.\run.bat --video https://youtu.be/VIDEO_ID --output D:\Backup
+.venv\Scripts\python.exe -m pytest                   # test suite
 ```
+
+In PowerShell the `.\` prefix is required (PowerShell doesn't run commands from the current folder by default). In `cmd.exe`, plain `run.bat` also works.
+
+`--video` is a temporary test mode; the guided prompts replace it in Increment 5. Any YouTube video link works (`youtu.be`, `watch?v=`, `shorts/`, `live/`, `embed/`; tracking parameters such as `?si=` are ignored).
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--output DIR` | `output\` in the project folder | Backup folder |
+| `--log-dir DIR` | `logs\` | Where run logs are written |
+| `--tools-dir DIR` | `tools\` | Where ffmpeg, ffprobe and Deno are looked for first |
+
+Exit codes: `0` verified or already done, `1` log folder can't be created, `2` invalid link or unusable output folder, `3` missing dependency, `4` no mode given, `5` download or verification failed.
+
+## What a backup contains
+
+```
+<output>\
+  manifest.json            status of every video (single source of truth; .bak kept)
+  report.csv               one row per video; UTF-8 with BOM for Excel
+  <Channel>\
+    <YYYY-MM-DD> - <Title> [<id>]\
+      <Title> [<id>].mkv   best video + best audio, stream copy, verified with ffprobe
+      <id>.description     original description text
+      <id>.info.json       full yt-dlp metadata
+      <id>.jpg / .webp     thumbnail
+      <id>.<lang>.vtt      captions the uploader added (no auto-generated captions)
+      <id>.details.json    author, chapters, hashtags, credits and links parsed from the description
+```
+
+What is embedded inside the MKV:
+
+- **Chapters:** YouTube's own chapters only. Timestamps found in the description are recorded in `details.json` but never embedded.
+- **Artist tag:** the author. The first match wins: an `Author:`-style label → a name in the title that the description confirms → a biography sentence → the channel name.
+
+A video counts as done only when ffprobe confirms all of the following:
+
+- it has both video and audio;
+- its duration is within ±2 s of YouTube's;
+- its resolution and frame rate are the best YouTube offered;
+- its codecs are unchanged;
+- the expected chapters and artist tag are present.
+
+Report columns: `video_id, title, channel, status, height, fps, vcodec, acodec, duration_s, size_bytes, path, author, author_source, chapter_count, hashtag_count, link_count, attempts, error`. Text that starts with `=`, `+`, `-` or `@` is prefixed with `'` so Excel can't run it as a formula.
 
 ## Layout
 
 ```
 src/ytripper/     application package
 tests/            pytest suite
+docs/             build specification
 tools/            ffmpeg.exe, ffprobe.exe, deno.exe (downloaded; not committed)
 samples/          sample descriptions for parser tests
 logs/             run logs (not committed)
@@ -64,7 +113,7 @@ run.bat           launcher
 YouTube changes often break downloaders, so update just before backing up:
 
 ```powershell
-.\setup.ps1 -Refresh
+pwsh -ExecutionPolicy Bypass -File .\setup.ps1 -Refresh
 .venv\Scripts\python.exe -m pytest
 ```
 

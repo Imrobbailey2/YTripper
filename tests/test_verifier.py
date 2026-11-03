@@ -76,6 +76,21 @@ def test_attached_picture_is_not_the_video_stream() -> None:
     assert evaluate(probe, EXPECTED).ok
 
 
+def test_chapters_and_artist_checks() -> None:
+    probe = _probe()
+    probe["chapters"] = [{"id": 0}, {"id": 1}]
+    probe["format"]["tags"] = {"ARTIST": "Camiel Doorenweerd"}
+    exp = Expected(2160, 60.0, "vp9", "opus", 120.0, chapters=2, artist="Camiel Doorenweerd")
+    result = evaluate(probe, exp)
+    assert result.ok, result.reasons
+    assert result.saved["chapters"] == 2 and result.saved["artist"] == "Camiel Doorenweerd"
+
+    wrong = Expected(2160, 60.0, "vp9", "opus", 120.0, chapters=3, artist="Someone Else")
+    reasons = evaluate(probe, wrong).reasons
+    assert any("2 chapters embedded, expected 3" in r for r in reasons)
+    assert any("artist tag" in r for r in reasons)
+
+
 def test_verify_file_missing(tmp_path: Path) -> None:
     result = verifier.verify_file(tmp_path / "nope.mkv", EXPECTED)
     assert not result.ok and "file not found" in result.reasons[0]
@@ -129,6 +144,29 @@ def test_real_clip_without_audio_fails(tmp_path: Path) -> None:
     exp = Expected(height=720, fps=30.0, vcodec="avc1", acodec="opus", duration_s=3.0)
     result = verifier.verify_file(clip, exp, FFPROBE)
     assert not result.ok and "no audio stream" in result.reasons
+
+
+@needs_ffmpeg
+def test_real_clip_with_chapters_and_artist(tmp_path: Path) -> None:
+    meta = tmp_path / "meta.txt"
+    meta.write_text(
+        ";FFMETADATA1\nartist=Jane Doe\n"
+        "[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1500\ntitle=Intro\n"
+        "[CHAPTER]\nTIMEBASE=1/1000\nSTART=1500\nEND=3000\ntitle=Body\n",
+        encoding="utf-8",
+    )
+    clip = tmp_path / "chap.mkv"
+    subprocess.run(
+        [FFMPEG, "-v", "error", "-y",
+         "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=3",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+         "-i", str(meta), "-map", "0:v", "-map", "1:a", "-map_metadata", "2", "-map_chapters", "2",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "libopus", str(clip)],
+        check=True, capture_output=True, timeout=120,
+    )
+    exp = Expected(720, 30.0, "avc1", "opus", 3.0, chapters=2, artist="Jane Doe")
+    result = verifier.verify_file(clip, exp, FFPROBE)
+    assert result.ok, result.reasons
 
 
 @needs_ffmpeg

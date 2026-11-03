@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from ytripper.manifest import Manifest, ManifestError, Status
-from ytripper.report import COLUMNS, write_report
+from ytripper.report import COLUMNS, safe_cell, write_report
 
 
 def test_new_manifest_round_trip(tmp_path: Path) -> None:
@@ -81,3 +81,24 @@ def test_report_has_row_per_video_and_bom(tmp_path: Path) -> None:
     assert rows[0]["title"] == "Ünïcode title" and rows[0]["height"] == "1080"
     assert rows[1]["error"] == "verify: no audio stream"
     assert tuple(rows[0].keys()) == COLUMNS
+
+
+@pytest.mark.parametrize("text", ['=HYPERLINK("http://evil","x")', "+1+1", "-2+3", "@SUM(A1)", "\tx", "\rx"])
+def test_safe_cell_neutralises_formulas(text: str) -> None:
+    assert safe_cell(text) == "'" + text
+
+
+@pytest.mark.parametrize("value", ["Normal title", "", "A = B", 1080, 29.97, 0, None])
+def test_safe_cell_leaves_other_values(value: object) -> None:
+    assert safe_cell(value) == value
+
+
+def test_report_neutralises_untrusted_text(tmp_path: Path) -> None:
+    m = Manifest.load(tmp_path)
+    m.set_status("aaaaaaaaaaa", Status.VERIFIED, title="=cmd|' /C calc'!A0", channel="+Chan",
+                 details={"author": "@evil", "chapter_count": 0},
+                 saved={"height": 1080, "fps": 30.0, "path": "a.mkv"})
+    rows = list(csv.DictReader(write_report(m).read_text(encoding="utf-8-sig").splitlines()))
+    assert rows[0]["title"] == "'=cmd|' /C calc'!A0"
+    assert rows[0]["channel"] == "'+Chan" and rows[0]["author"] == "'@evil"
+    assert rows[0]["height"] == "1080" and rows[0]["chapter_count"] == "0"

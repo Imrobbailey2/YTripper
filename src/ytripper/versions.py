@@ -21,7 +21,9 @@ from pathlib import Path
 from .paths import TOOLS_DIR
 
 #: Python packages that must be importable inside the virtual environment.
-REQUIRED_PACKAGES: tuple[str, ...] = ("yt-dlp", "yt-dlp-ejs", "rich")
+#: curl-cffi lets yt-dlp impersonate a browser's TLS fingerprint; its supported
+#: version range comes from yt-dlp's own ``curl-cffi`` extra (requirements.in).
+REQUIRED_PACKAGES: tuple[str, ...] = ("yt-dlp", "yt-dlp-ejs", "curl-cffi", "rich")
 
 #: External executables -> argument that prints the version.
 REQUIRED_BINARIES: dict[str, list[str]] = {
