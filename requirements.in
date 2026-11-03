@@ -2,6 +2,8 @@
 # setup.ps1 installs these with --pre (yt-dlp nightly channel, per architecture decision 3)
 # and freezes the exact resolved versions into requirements.lock.txt.
 # Once a version passes testing, commit requirements.lock.txt; later setups install from it.
-yt-dlp[default]
+# The curl-cffi extra enables browser impersonation; yt-dlp's own extra defines the
+# curl-cffi versions it supports, so no separate pin is kept here.
+yt-dlp[default,curl-cffi]
 yt-dlp-ejs
 rich

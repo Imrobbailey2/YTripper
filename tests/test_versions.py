@@ -74,6 +74,11 @@ def test_missing_package_is_reported() -> None:
     assert not component.ok
 
 
+def test_curl_cffi_is_a_required_package() -> None:
+    # Browser impersonation for yt-dlp (decision 2026-11-03); reported by --versions.
+    assert "curl-cffi" in versions.REQUIRED_PACKAGES
+
+
 def test_collect_includes_every_required_component(tmp_path: Path) -> None:
     names = [c.name for c in versions.collect(tmp_path)]
     assert names[0] == "python"

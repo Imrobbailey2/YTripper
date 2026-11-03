@@ -32,6 +32,7 @@ Setup does the following:
 1. Creates `.venv` and installs the Python dependencies.
    - If `requirements.lock.txt` exists, it installs those exact versions.
    - Otherwise it installs the latest **nightly** yt-dlp and writes the resolved versions to `requirements.lock.txt`.
+   - yt-dlp is installed with its `curl-cffi` extra so it can impersonate a browser when a site requires it. The allowed curl-cffi versions come from yt-dlp itself.
 2. Downloads `ffmpeg.exe`, `ffprobe.exe` and `deno.exe` into `tools\`. Each archive is checked against the SHA-256 checksum its publisher releases alongside it.
 3. Runs `python -m ytripper --versions` and fails if any dependency is missing.
 
@@ -40,14 +41,18 @@ Setup does the following:
 | `-Refresh` | Ignores the lock file and existing tools: gets the newest nightly yt-dlp and downloads ffmpeg and Deno again |
 | `-SkipTools` | Uses ffmpeg, ffprobe and Deno from `PATH` instead of downloading them |
 
+If you set up before curl-cffi was added (`--versions` shows `MISSING curl-cffi`), run `pwsh -ExecutionPolicy Bypass -File .\setup.ps1 -Refresh` once. A plain setup reinstalls the old lock file, which doesn't include it.
+
 ## Usage (current)
 
-```bat
-run.bat --versions                                   & rem dependency check
-run.bat --video https://youtu.be/VIDEO_ID            & rem back up one video into .\output
-run.bat --video https://youtu.be/VIDEO_ID --output D:\Backup
-.venv\Scripts\python.exe -m pytest                   & rem test suite
+```powershell
+.\run.bat --versions                                 # dependency check
+.\run.bat --video https://youtu.be/VIDEO_ID          # back up one video into .\output
+.\run.bat --video https://youtu.be/VIDEO_ID --output D:\Backup
+.venv\Scripts\python.exe -m pytest                   # test suite
 ```
+
+In PowerShell the `.\` prefix is required (PowerShell doesn't run commands from the current folder by default). In `cmd.exe`, plain `run.bat` also works.
 
 `--video` is a temporary test mode; the guided prompts replace it in Increment 5. Any YouTube video link works (`youtu.be`, `watch?v=`, `shorts/`, `live/`, `embed/`; tracking parameters such as `?si=` are ignored).
 
@@ -108,7 +113,7 @@ run.bat           launcher
 YouTube changes often break downloaders, so update just before backing up:
 
 ```powershell
-.\setup.ps1 -Refresh
+pwsh -ExecutionPolicy Bypass -File .\setup.ps1 -Refresh
 .venv\Scripts\python.exe -m pytest
 ```
 
