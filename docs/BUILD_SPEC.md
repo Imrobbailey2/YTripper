@@ -111,8 +111,8 @@ Make a one-time, **verified**, best-quality backup of a client's YouTube content
 |---|---|---|
 | 0 | Skeleton, `setup.ps1`, launcher, logging, dependency check | Merged |
 | 1 | One video end to end: download → check → manifest → report | Merged |
-| 2 | F19, F19a, F19b: description details | On its branch; review fixes R2, R4–R7 applied; waiting for the Windows run (R1) |
-| 3 | F1–F4a, F13, F14, F14a: all four input types, line-numbered errors, finding videos via playlists, playlist columns | ✅ Planned |
+| 2 | F19, F19a, F19b: description details | Merged 2026-11-03 (PR #2); review fixes R2, R4–R7; validated on Windows (R1) |
+| 3 | F1–F4a, F13, F14, F14a: all four input types, line-numbered errors, finding videos via playlists, playlist columns | In progress on `increment-3-inputs` (step 1 of 5: link classification and list parsing) |
 | 4 | F17, F10–F10c, F11a, NF2, NF11*: preview, the multi-video loop, failure handling, pacing | ✅ Planned |
 | 5 | F12, F15: guided prompts, output-folder prompt, README for end users | 🔎 |
 
