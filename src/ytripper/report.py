@@ -4,7 +4,6 @@ Written as UTF-8 with a BOM so Excel opens non-ASCII titles correctly.
 Text that comes from YouTube (titles, channel, author, errors) is untrusted:
 any cell starting with a formula trigger is prefixed with ``'`` so Excel
 shows it as text instead of evaluating it (CSV/formula injection, CWE-1236).
-Playlist columns are added in Increment 3.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ COLUMNS = (
     "video_id", "title", "channel", "status", "height", "fps", "vcodec", "acodec",
     "duration_s", "size_bytes", "path",
     "author", "author_source", "chapter_count", "hashtag_count", "link_count",
-    "attempts", "error",
+    "playlist_count", "playlists", "attempts", "error",
 )
 
 #: Leading characters that make Excel/LibreOffice treat a cell as a formula.
@@ -58,6 +57,11 @@ def build_rows(manifest: Manifest) -> list[dict[str, object]]:
             "chapter_count": details.get("chapter_count", ""),
             "hashtag_count": details.get("hashtag_count", ""),
             "link_count": details.get("link_count", ""),
+            "playlist_count": len(entry.get("playlists") or []),
+            "playlists": "; ".join(
+                f'{p["title"]} [{p["id"]}] #{p["position"]}'
+                for p in (entry.get("playlists") or [])
+            ),
             "attempts": entry.get("attempts", 0),
             "error": f"{err.get('stage')}: {err.get('message')}" if err else "",
         }

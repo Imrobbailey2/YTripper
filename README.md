@@ -1,8 +1,16 @@
 # YTripper
 
-YTripper makes a one-time, verified backup of a YouTube channel's videos in the best quality YouTube stores. It's a guided script for Windows, built on [yt-dlp](https://github.com/yt-dlp/yt-dlp) (used as a Python library), ffmpeg/ffprobe and Deno.
+YTripper makes a one-time, verified backup of YouTube videos in the best quality YouTube stores. It's a command-line application for Windows, built on [yt-dlp](https://github.com/yt-dlp/yt-dlp) (used as a Python library), ffmpeg/ffprobe and Deno.
 
-> **Status: Increment 2 (description details).** A single video can be backed up end to end with `--video`: download, ffprobe verification, description details, manifest and report. Channel, playlist and link-list input (Increment 3), the preview and multi-video run (Increment 4) and the guided prompts (Increment 5) are still to come. See [`docs/BUILD_SPEC.md`](docs/BUILD_SPEC.md) for the full specification.
+> **Status:** Single-video and playlist backups are available via command-line options. Channel-wide video discovery, link-list input, full preview estimates, the three-failed-runs attention policy and guided prompts are still planned. See [`docs/BUILD_SPEC.md`](docs/BUILD_SPEC.md) for the full specification.
+
+## Current state
+
+- Single-video, single-playlist and channel playlists-page modes are implemented. A playlists-page run does not include videos outside its playlists.
+- Playlist runs deduplicate videos by ID and record every discovered playlist position. The preview requires confirmation before downloading.
+- On 2026-11-20, an unlisted playlist with 30 entries (29 unique videos) was downloaded and all 29 videos passed verification. The earlier channel playlists-page preview discovered 17 playlists and 136 unique videos; that preview did not download them.
+- The full test suite is run with `.venv\Scripts\python.exe -m pytest`. These checks do not guarantee that YouTube will remain compatible with the locked yt-dlp version.
+- Backups, logs and local test output are runtime data and are not committed.
 
 ## Scope
 
@@ -49,12 +57,32 @@ If you set up before curl-cffi was added (`--versions` shows `MISSING curl-cffi`
 .\run.bat --versions                                 # dependency check
 .\run.bat --video https://youtu.be/VIDEO_ID          # back up one video into .\output
 .\run.bat --video https://youtu.be/VIDEO_ID --output D:\Backup
+.\run.bat --playlist "https://www.youtube.com/playlist?list=PLAYLIST_ID"
+.\run.bat --playlists "https://www.youtube.com/@npdnchannel/playlists" --include-other-channels
 .venv\Scripts\python.exe -m pytest                   # test suite
 ```
 
-In PowerShell the `.\` prefix is required (PowerShell doesn't run commands from the current folder by default). In `cmd.exe`, plain `run.bat` also works.
+In PowerShell the `.\` prefix is required (PowerShell doesn't run commands from the current folder by default). In `cmd.exe`, plain `run.bat` also works. When passing a playlist link to `run.bat`, omit the optional `&si=...` tracking parameter; an ampersand in a batch-file argument can be interpreted as a command separator.
 
 `--video` is a temporary test mode; the guided prompts replace it in Increment 5. Any YouTube video link works (`youtu.be`, `watch?v=`, `shorts/`, `live/`, `embed/`; tracking parameters such as `?si=` are ignored).
+
+`--playlist` backs up one playlist, including videos from other channels. `--playlists`
+discovers all playlists on a channel's playlists page; by default it skips videos
+from other channels or with unknown uploaders. Add `--include-other-channels` to
+include them. Videos in multiple playlists are downloaded once; their memberships
+and positions are recorded in the details file and report. Previously verified
+videos are skipped if their files still exist.
+
+Playlist runs show a preview and ask for confirmation before downloading. Flat
+discovery does not supply reliable sizes or all upload dates, so the preview marks
+those as unknown and does not perform an estimated free-space check. Answering no
+records newly discovered videos as planned. Discovery entries that are unavailable
+or filtered out are displayed; a completed run with skipped discovery entries exits
+with a failure code so an incomplete backup is not mistaken for a complete one.
+Downloads are processed sequentially with a 5–15 second pause, failed videos are
+retried once, and rate-limit errors get up to three 10-minute waits. Unverified
+files are moved under `.failed\<video-id>\<attempt>\`; an unsuccessful move is
+reported and blocks automatic playlist retries until the issue is resolved.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -62,7 +90,7 @@ In PowerShell the `.\` prefix is required (PowerShell doesn't run commands from 
 | `--log-dir DIR` | `logs\` | Where run logs are written |
 | `--tools-dir DIR` | `tools\` | Where ffmpeg, ffprobe and Deno are looked for first |
 
-Exit codes: `0` verified or already done, `1` log folder can't be created, `2` invalid link or unusable output folder, `3` missing dependency, `4` no mode given, `5` download or verification failed.
+Exit codes: `0` verified, already done or playlist preview cancelled; `1` log folder can't be created; `2` invalid single-video link or unusable output folder; `3` missing dependency; `4` no mode given; `5` playlist discovery or backup failed, a playlist entry was skipped, or video download or verification failed.
 
 ## What a backup contains
 
@@ -93,7 +121,7 @@ A video counts as done only when ffprobe confirms all of the following:
 - its codecs are unchanged;
 - the expected chapters and artist tag are present.
 
-Report columns: `video_id, title, channel, status, height, fps, vcodec, acodec, duration_s, size_bytes, path, author, author_source, chapter_count, hashtag_count, link_count, attempts, error`. Text that starts with `=`, `+`, `-` or `@` is prefixed with `'` so Excel can't run it as a formula.
+Report columns: `video_id, title, channel, status, height, fps, vcodec, acodec, duration_s, size_bytes, path, author, author_source, chapter_count, hashtag_count, link_count, playlist_count, playlists, attempts, error`. Text that starts with `=`, `+`, `-` or `@` is prefixed with `'` so Excel can't run it as a formula.
 
 ## Layout
 

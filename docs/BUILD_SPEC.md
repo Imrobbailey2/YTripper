@@ -3,6 +3,15 @@
 **Status:** v1.1, approved 2026-11-02. v1.1 changes: F8 and NF3 returned to their original meanings (the code cites them), so the preview is now F17 and pacing is NF11; decision 4 revised so description chapters are never embedded. Reconstructed from the code at `increment-2-description-details` @ 2792f2b plus user Q&A. The original spec was lost.
 **Owner:** Rob Bailey
 
+**Implementation snapshot (2026-11-20):** Single-video, playlist and channel
+playlists-page CLI modes are implemented. Playlist runs preview and confirm,
+deduplicate by video ID, record membership, retry failures and verify downloads.
+An unlisted playlist with 30 entries (29 unique videos) completed verification
+for all 29. Channel-wide discovery, link-list input, complete size estimates and
+free-space checking, the three-failed-runs attention policy, and guided prompts
+remain unimplemented. This is a partial delivery of increments 3 and 4, not the
+full MVP described below. See the README for usage and current limitations.
+
 **Legend**
 - ✅ **Confirmed:** you confirmed it in the 2026-11-02 Q&A.
 - 🔎 **Recovered:** cited in the code; the original wording is lost.
@@ -111,9 +120,9 @@ Make a one-time, **verified**, best-quality backup of a client's YouTube content
 |---|---|---|
 | 0 | Skeleton, `setup.ps1`, launcher, logging, dependency check | Merged |
 | 1 | One video end to end: download → check → manifest → report | Merged |
-| 2 | F19, F19a, F19b: description details | On its branch; review fixes R2, R4–R7 applied; waiting for the Windows run (R1) |
-| 3 | F1–F4a, F13, F14, F14a: all four input types, line-numbered errors, finding videos via playlists, playlist columns | ✅ Planned |
-| 4 | F17, F10–F10c, F11a, NF2, NF11*: preview, the multi-video loop, failure handling, pacing | ✅ Planned |
+| 2 | F19, F19a, F19b: description details | Implemented |
+| 3 | F1–F4a, F13, F14, F14a: all four input types, line-numbered errors, finding videos via playlists, playlist columns | Partially implemented: playlist and playlists-page input, deduplication and playlist records |
+| 4 | F17, F10–F10c, F11a, NF2, NF11*: preview, the multi-video loop, failure handling, pacing | Partially implemented: see implementation snapshot and README |
 | 5 | F12, F15: guided prompts, output-folder prompt, README for end users | 🔎 |
 
 ## 6. MVP

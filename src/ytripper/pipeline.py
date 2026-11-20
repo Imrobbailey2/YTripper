@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from enum import Enum
 from pathlib import Path
 from typing import Callable
@@ -71,7 +72,7 @@ def backup_video(
         write_report(manifest)
         return Outcome.SKIPPED
 
-    manifest.set_status(video_id, Status.DOWNLOADING, source_url=canonical)
+    entry = manifest.set_status(video_id, Status.DOWNLOADING, source_url=canonical)
     manifest.save()
     log.info("Downloading %s", canonical)
 
@@ -101,7 +102,9 @@ def backup_video(
         chapters_source = description.embedded_chapters_source(info)
     details_path = result.filepath.parent / f"{video_id}.details.json"
     try:
-        _write_json(details_path, description.build_record(info, details, chapters_source))
+        record = description.build_record(info, details, chapters_source)
+        record["playlists"] = (manifest.get(video_id) or {}).get("playlists", [])
+        _write_json(details_path, record)
     except OSError as exc:
         log.error("%s could not write %s: %s", video_id, details_path.name, exc)
         manifest.fail(video_id, "details", f"could not write details file: {exc}", "os_error")
@@ -131,8 +134,20 @@ def backup_video(
                  saved.get("vcodec"), saved.get("acodec"), saved["path"])
         outcome = Outcome.VERIFIED
     else:
+        message = "; ".join(check.reasons)
+        try:
+            attempts = entry["attempts"]
+            failed_dir = output_dir / ".failed" / video_id / str(attempts)
+            failed_dir.mkdir(parents=True, exist_ok=False)
+            failed_path = failed_dir / result.filepath.name
+            shutil.move(str(result.filepath), str(failed_path))
+            saved["path"] = _relative(failed_path, output_dir)
+            code = "verification_failed"
+        except OSError as exc:
+            message += f"; could not move unverified file to quarantine: {exc}"
+            code = "quarantine_failed"
         manifest.ensure(video_id, saved=saved)
-        manifest.fail(video_id, "verify", "; ".join(check.reasons), "verification_failed")
+        manifest.fail(video_id, "verify", message, code)
         log.error("%s failed verification: %s", video_id, "; ".join(check.reasons))
         outcome = Outcome.FAILED
     manifest.save()

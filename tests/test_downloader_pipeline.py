@@ -177,6 +177,9 @@ def test_pipeline_records_verification_failure_and_retries(tmp_path: Path) -> No
     assert backup_video(URL, tmp_path, tmp_path, download_fn=fake, verify_fn=bad_verifier) is Outcome.FAILED
     entry = Manifest.load(tmp_path).get(VID)
     assert entry["last_error"]["stage"] == "verify"
+    assert entry["last_error"]["code"] == "verification_failed"
+    assert (tmp_path / entry["saved"]["path"]).is_file()
+    assert ".failed" in entry["saved"]["path"]
     # failed videos are retried on the next run
     assert backup_video(URL, tmp_path, tmp_path, download_fn=fake, verify_fn=ok_verifier) is Outcome.VERIFIED
     assert Manifest.load(tmp_path).get(VID)["attempts"] == 2
@@ -212,6 +215,29 @@ def test_pipeline_writes_details_file_and_report_columns(tmp_path: Path) -> None
     rows = list(csv.DictReader((tmp_path / "report.csv").read_text(encoding="utf-8-sig").splitlines()))
     assert rows[0]["author"] == "Camiel Doorenweerd"
     assert (rows[0]["chapter_count"], rows[0]["hashtag_count"], rows[0]["link_count"]) == ("2", "1", "1")
+
+
+def test_pipeline_writes_playlist_memberships_to_details(tmp_path: Path) -> None:
+    membership = {"id": "PL_one", "title": "My playlist", "position": 3}
+    manifest = Manifest.load(tmp_path)
+    manifest.ensure(VID, playlists=[membership])
+    assert backup_video(URL, tmp_path, tmp_path, manifest=manifest,
+                        download_fn=FakeDownloader(), verify_fn=ok_verifier) is Outcome.VERIFIED
+    entry = Manifest.load(tmp_path).get(VID)
+    record = json.loads((tmp_path / entry["details_path"]).read_text(encoding="utf-8"))
+    assert record["playlists"] == [membership]
+
+
+def test_quarantine_failure_is_recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ytripper import pipeline
+
+    def fail_move(*args: object) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(pipeline.shutil, "move", fail_move)
+    assert backup_video(URL, tmp_path, tmp_path, download_fn=FakeDownloader(), verify_fn=bad_verifier) is Outcome.FAILED
+    error = Manifest.load(tmp_path).get(VID)["last_error"]
+    assert error["code"] == "quarantine_failed" and "permission denied" in error["message"]
 
 
 def test_pipeline_fallback_parse_derives_youtube_chapter_source(tmp_path: Path) -> None:

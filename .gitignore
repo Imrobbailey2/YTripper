@@ -13,6 +13,7 @@ tools/_downloads/
 # Runtime output
 logs/
 output/
+test-output/
 *.part
 *.ytdl
 
